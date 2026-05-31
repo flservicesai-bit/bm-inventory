@@ -2122,7 +2122,8 @@ document.querySelectorAll('.fl-logo').forEach(img => { img.src = FUTURELINE_LOGO
 (function () {
   const v = document.getElementById('gateVideo');
   if (!v) return;
-  v.src = 'gate-bg.mp4';
+  // Bump this version tag whenever gate-bg.mp4 is replaced, to bypass browser cache.
+  v.src = 'gate-bg.mp4?v=peds-2026-06';
   v.play && v.play().catch(() => {});
 })();
 
