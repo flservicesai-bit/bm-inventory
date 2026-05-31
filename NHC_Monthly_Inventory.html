@@ -822,6 +822,11 @@
     <p>Point the camera at a Bio-number QR label to find &amp; check the item.</p>
     <div id="qrReader" style="width:100%"></div>
     <div class="scan-result" id="scanResult"></div>
+    <div id="scanManual" style="display:none; gap:8px; align-items:center;">
+      <input type="text" id="scanManualInput" placeholder="Type Bio number…" style="flex:1"
+             onkeydown="if(event.key==='Enter')manualScanLookup()">
+      <button class="btn btn-primary" onclick="manualScanLookup()">Find</button>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeScanner()">Close</button>
     </div>
@@ -1953,15 +1958,48 @@ function printQrLabels() {
 let _scanner = null;
 function openScanner() {
   if (typeof Html5Qrcode === 'undefined') { toast('Scanner library still loading — try again.'); return; }
-  document.getElementById('scanResult').textContent = '';
+  const res = document.getElementById('scanResult');
+  res.className = 'scan-result'; res.textContent = '';
+  document.getElementById('scanManual').style.display = 'none';
+  const reader = document.getElementById('qrReader');
+  reader.innerHTML = '';
   document.getElementById('scanModal').classList.add('open');
-  _scanner = new Html5Qrcode('qrReader');
+  try { _scanner = new Html5Qrcode('qrReader'); }
+  catch (e) { showScanError('Could not start the scanner.'); return; }
   _scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: 220 }, onScanSuccess, () => {})
-    .catch(err => { document.getElementById('scanResult').textContent = 'Camera error: ' + err; });
+    .catch(err => {
+      const name = (err && (err.name || err.toString())) || '';
+      let msg = 'Camera could not start.';
+      if (/NotAllowedError|Permission/i.test(name)) msg = 'Camera permission was blocked. Allow camera access in your browser settings, then reopen Scan.';
+      else if (/NotFoundError|NotReadable|Overconstrained/i.test(name)) msg = 'No usable camera found on this device.';
+      else if (location.protocol !== 'https:' && location.hostname !== 'localhost') msg = 'Camera needs the secure (https) site — open the app via its web link, not a downloaded file.';
+      showScanError(msg);
+    });
+}
+function showScanError(msg) {
+  const res = document.getElementById('scanResult');
+  res.className = 'scan-result miss'; res.textContent = '⚠ ' + msg;
+  // reveal manual entry fallback so the feature still works
+  document.getElementById('scanManual').style.display = 'flex';
+  // the camera failed to attach, so make sure we don't keep a half-started scanner
+  if (_scanner) { try { _scanner.clear(); } catch (e) {} _scanner = null; }
+}
+function manualScanLookup() {
+  const v = (document.getElementById('scanManualInput').value || '').trim();
+  if (v) onScanSuccess(v);
 }
 function closeScanner() {
-  if (_scanner) { _scanner.stop().then(() => _scanner.clear()).catch(()=>{}); _scanner = null; }
+  // Always close the modal first so the button can never get "stuck".
   document.getElementById('scanModal').classList.remove('open');
+  const s = _scanner; _scanner = null;
+  if (!s) return;
+  try {
+    const p = s.stop();           // may return a promise OR throw if not running
+    if (p && p.then) p.then(() => { try { s.clear(); } catch (e) {} }).catch(() => { try { s.clear(); } catch (e) {} });
+    else { try { s.clear(); } catch (e) {} }
+  } catch (e) {
+    try { s.clear(); } catch (e2) {}
+  }
 }
 function onScanSuccess(decodedText) {
   const code = (decodedText || '').trim();
@@ -1981,8 +2019,8 @@ function onScanSuccess(decodedText) {
     saveState(); renderRows(); updateStats();
     res.className = 'scan-result ok'; res.textContent = `✓ ${hit.row.item} — ${code} marked FOUND for ${MONTHS[currentMonth]}`;
   }
-  // brief pause to avoid duplicate rapid scans
-  if (_scanner) { _scanner.pause(true); setTimeout(() => { try { _scanner && _scanner.resume(); } catch(e){} }, 1500); }
+  // brief pause to avoid duplicate rapid scans (guard: scanner may be absent on manual entry)
+  if (_scanner) { try { _scanner.pause(true); setTimeout(() => { try { _scanner && _scanner.resume(); } catch(e){} }, 1500); } catch(e){} }
   // also jump to it in the table
   searchTerm = code; document.getElementById('searchInput').value = code;
   expandedItems.add(hit.row.id); renderRows();
